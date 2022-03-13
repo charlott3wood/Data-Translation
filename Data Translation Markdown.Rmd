@@ -1,0 +1,336 @@
+---
+title: "Data Translation Project"
+authors: "Charlotte Wood, Tinh-Anh Lee, Nidhi Unnikrishnan, Anamaria Ignjatovic"
+date: "3/13/2022"
+output: html_document
+---
+Due to the COVID-19 pandemic, there have been many impacts on various business sectors. One sector that has changed is the retail sector. Some businesses grew rapidly, while many other suffered from the lock-downs and closures. 
+
+In this study, we will be analyzing these impacts on the retail sector, in addition to the rest of the economy. Because government funding could have impacted business revenues, we will be using employment data to see how our business was actually impacted from the pandemic. 
+
+Through our analyses, we will be looking at three main topics, including: how COVID impacted the health of the retail industry, measured by employment, how the retail industry has done compared to others, and what has changed about people who are employed, because it impacts their ability to spend. 
+
+In order to conduct these, we will be running various regressions and analyzing the results. We will use various variables in our analysis, including gender, race, age. We will then draw conclusions on this data to assist our business in seeing how we have done during the pandemic and what variables could have impacted overall performance. 
+
+Assumptions: 
+Covid-19 Starting in March 
+We decided to assume that Covid-19 started in March 2020, and ran all of our regressions accordingly. Although we are working with only US data, Covid-19 did start world wide in December 2019. People were vaguely aware that it was a thing, and that it make come to the U.S. March 13th is the day most people credit it for being when the U.S. shut down, and therefore we need to include it to make our results accurate. If we didn’t include it, the numbers may look skewed for all income. If retail shut down in the beginning of the month, we need to include it to see the real results. 
+
+ASEC Data 
+We decided to use the ASEC data for income even though it was yearly, because it would still show us the effect. We were looking for how the retail industry had been impacted in general, and this data would show us that, since we had a year before, during, and after. We understand that there are limitations to doing it this way instead of monthly, but we feel having the exact income number makes up for that. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Libraries
+```{r}
+library(rdrobust)
+library(jtools)
+library(haven)
+library(vtable)
+library(tidyverse)
+library(ipumsr)
+library(lubridate)
+library(fixest)
+library(ggplot2)
+```
+
+#Loading and Cleaning the Data
+We had to first load in the data and clean it. We wanted to add in all of the industry codes so it was easier for us to work with the data, and then we created dates as numbers so that we can set a pre and post covid. 
+```{r}
+#reading in data
+ddi <- read_ipums_ddi("cps_00003.xml")
+data <- read_ipums_micro(ddi)
+
+#adding industry data
+industry <- read.csv("indnames.csv")
+industry <- rename(industry, IND = ind)
+BigData <- inner_join(data, industry, by = 'IND')
+
+#mutate
+CleanData <- BigData %>% mutate(date = paste0(YEAR, '-', MONTH, '-01'))
+CleanData <- CleanData %>% mutate(date = ymd(date))
+
+```
+
+## Question 1: 
+How has COVID affected the health of the retail industry, as measured by employment?
+
+
+```{r}
+#selecting relevant columns
+q1Data1 <- CleanData %>% select(EMPSTAT, IND, WHYUNEMP, COVIDUNAW, indname, date)
+
+#dropping missing data
+q1Data2 <- drop_na(q1Data1)
+
+#choose retail data
+q1Data3 <- q1Data2 %>% filter(indname == 'Retail Trade')
+
+#Not including 2022
+q1Data4 <- q1Data3 %>% filter (date < '2022-01-01')
+
+#Drop Not in universe in COVIDUNAW
+q1Data5 <- q1Data4 %>%filter(COVIDUNAW != 99)
+
+#Date as numeric for regression
+q1COVIDUNAWdata<- q1Data5 %>% mutate(numDate = as.numeric(date))
+```
+
+Due to the number of NAs in the original data set, we selected different variables for each question, and then are doing further data cleaning. I chose the COVIDUNAW, industry specific, and EMPSTAT/WHY UNEMP variables because they provide more insight into employment, the retail industry, and COVID related employment situations over time. COVIDUNAW I filtered the date before 2022 so we can analyze yearly trends in 2020 and 2021. 
+
+
+COVIDUNAW reports how many people were unable due to the previous four weeks because their employer closed or lost business due to the COVID-19 pandemic.The corresponding values are 1: able to work, 2:unable to work. This variable most closely matches the research question, and shows how employment was affected due to COVID. 
+
+This first table gives us an overall summary of the average amount of people (on a scale from 1 to 2) that could not attend work the previous weeks due to COVID. 
+
+```{r}
+#Group by year and date
+group_byQ1<- q1Data5 %>% group_by(date) %>% summarize(AvgNoWorkCOVID = mean(COVIDUNAW))
+view(group_byQ1)
+```
+
+```{r}
+ggplot(group_byQ1, aes(x=date, y=AvgNoWorkCOVID)) + geom_line()
+```
+This plot shows the trend of the means of Avg No work Covid over time. Since the pandemic originally began in March 2020, we see that there is a downward, non-linear relationship between time since COVID and the average amount of people who could not attend work due to covid. 
+
+```{r}
+#regression
+Q1reg1 <- lm(log(COVIDUNAW) ~ numDate, data = q1COVIDUNAWdata)
+export_summs(Q1reg1, digits = 5)
+```
+This is a simple regression tracking how the COVID pandemic affected retail employment over time. The independent variable is time and the dependent variable is the mean value of the variable COVIDUNAW, which reports how many people were unable due to the previous four weeks because their employer closed or lost business due to the COVID-19 pandemic. The values of COVIDUNAW are either 1 (No to unable to work during the COVID- 19 pandemic), or 2 (Yes, unable to work during the COVID-19 pandemic). I did not change these values  to 0 and 1 because I am using a log in the regression equation. I  After running the regression, the equation is ln(AvgNoWorkCovid) = 3.96 +  -0.00021(NumDate). This means that in a range of 1 to 2 of AvgNoWorkCovid, since May 2020,  a one month increase in date is associated with a -.00021 unit change in ln(AvgNoWorkCovid), which is approximately a - .021% change in AverageNoWorkCovid. This makes sense since COVID emerged in March of 2020, the effect of COVID on employment would be strongest closest to this date, and as time passes, more employment would be restored. After March of 2020, more restrictions, mask mandates, and testing was put into place which could have improved the health of the pandemic. 
+
+One assumption that we are making is that there is no omitted variable bias. Since employment and the severity of the COVID pandemic can be different based on region, a control of state could be introduced in further regressions. However, since the research question is looking at the overall health of the retail employment industry in regards to COVID, this seems more general where a simple regression is more fitting. 
+
+```{r}
+ggplot(group_byQ1, aes(x=date, y=log(AvgNoWorkCOVID))) + geom_line() +
+  scale_y_log10()+
+  geom_smooth(method= 'lm')
+```
+The second plot is the regression line plotted on top of the original data, but the y axis is changed to a logarithmic scale. Since the regression line matches the original data relatively well, we know that our regression is accurate. 
+
+## Regression 2
+Although the COVIDUNAW variable is a great variable for identifying employment changes because of COVID, this variable only has data from May 2020. Since COVID was in place from Jan- March, we should look at a different variable to track trends during this time. The EMPSTAT variable has data from Jan 2020 to Dec 2021, which is our range of interest. EMPSTAT indicates what aspect of the labor force people identify with. I decided to only select EMPSTAT = 12 in my data, because these are the people that had a job, but was not at work last week. This most closely aligns with the COVIDUNAW variable. 
+
+One assumption we are making is that people were not at work last week because of COVID. We recognize that there oculd be other reasons why someone misses work, but due to the severity and prevalence of the pandemic, we can assume that there is a strong correlation between missing work due to the pandemic. 
+
+```{r}
+#Data Cleaning:
+Q1empData <- CleanData  %>% select(EMPSTAT, IND, WHYUNEMP, indname, date)
+Q1empData <- drop_na(Q1empData)
+Q1empData <- Q1empData %>% filter(EMPSTAT == 12) 
+Q1empData <- Q1empData %>% filter(indname == 'Retail Trade')
+Q1empData <- Q1empData %>% filter(date < '2022-01-01')
+Q1empData <- Q1empData %>% mutate(numDate = as.numeric(date))
+```
+
+```{r}
+#Group By Summary
+groupbyEmp <- Q1empData  %>% group_by(date) %>% summarize(CountMissedWork= (sum(EMPSTAT)/12))
+```
+I decided to do the count of EMPSTAT instead of the average, because since we only have EMPSTAT = 12 in our data, we want to find the frequency of the counts over time. 
+
+```{r}
+ggplot(groupbyEmp, aes(x=date, y=CountMissedWork)) + geom_line()
+```
+Since the data oscillates over time, I'm going to restrict the time scope to just the first half of 2020. This will allow us to get a clearer regression. Furthermore, since we want to analyze the impact of COVID between Jan-May of 2020 (which was missing from the COVIDUNAW variable), we can restrict this data to this relativetime period. 
+
+
+```{r}
+Q1empData2020 <- Q1empData %>% filter(date < '2020-07-01')
+Q1empData2020 <- Q1empData2020 %>% filter(date > '2020-01-01')
+```
+
+
+```{r}
+groupbyEmp2 <- Q1empData2020  %>% group_by(date) %>% summarize(CountMissedWork= (sum(EMPSTAT)/12))
+view(groupbyEmp2)
+```
+
+
+```{r}
+ggplot(groupbyEmp2, aes(x=date, y=CountMissedWork)) + geom_line()
+```
+Since this graph looks like a non-linear, negative polynomial, this is the functional form I used in the regression. 
+
+```{r}
+groupbyEmp3 <- Q1empData2020  %>% group_by(numDate) %>% summarize(CountMissedWork= (sum(EMPSTAT)/12))
+Q1empreg <- lm(CountMissedWork ~ numDate + I(numDate^2), data = groupbyEmp3)
+export_summs(Q1empreg, digits = 5)
+```
+
+The derivative of this regression equation is dy/dx = -0.15346x + 2815.56. Therefore, to know the effect of time on employment status, you can plug numDate as X into this equation to understand the effect on the frequency of employment status being employed, but not at work last week. It is important to note that this regression's coefficients are not statistically significant, so this model may not accurately predict employment status by time the best. However, with the regression adn the graph, we can still pull important insights.  
+
+Overall the regression and the graphs tell us that COVID strongly increased the inability of people to work at the beginning of the pandemic, but as time went on, had less of an impact. Other important factors to consider is that employment may be strongly impacted by COVID case counts and other health policy (mask mandates, lockdowns, testing, vaccination, etc.) Future regressions can track how these aspects specifically impacted employment. 
+
+
+
+### Question 2:
+
+We then selected the data we needed to answer the question, "How has retail fared relative to other industries?". In order to do that, we assumed that we would need to see the income for each industry, the dates, and the industry names. 
+```{r}
+question2 <- CleanData %>% select(INCTOT, indname, date)
+question2 <- question2 %>% drop_na(date)
+question2 <- question2 %>% drop_na(INCTOT)
+
+```
+
+We decided to do this by a difference in difference. A traditional difference in difference shows us how time effects a certain group from a certain cut off point. The question we were trying to answer is 	how has retail fared relative to other industries during Covid, which gives us two groups (retail and not) and two time periods, (Covid and pre-Covid). This is why we figured we should do a difference in difference, as we can compare income across these groups and time periods to show us how industry faired relative to all the other industries. 
+```{r}
+question2A <- question2 %>% group_by(indname, date) %>% summarise(SumIncome = sum(INCTOT))
+DIDmeans <- question2A %>% 
+  mutate(after = date >= '2020-03-01',
+         treated = indname == 'Retail Trade')
+Means <- DIDmeans %>% 
+  group_by(after, treated) %>%
+  summarize(SumIncome =sum(SumIncome))
+```
+
+The first DID that we did was a basic one. We grouped by before and after March 1 2020, and then separated by Retail and all others not retail, as two groups. We then took the sum total of Income for each group and compared it. Obviously, not-retail was going to be a lot bigger, as it has more things to sum. However, we still felt it was important to do this, so we could get a relative sense of how much of the total economy that we were working with was from retail. 
+
+It is important to note that we treated not retail as the “not treated” group, even though they are both effected by Covid in order to use this strategy of Difference in Difference. 
+
+
+```{r}
+(749065580 - 387019781) - (9350289691 - 4851851145)
+```
+
+Therefore this analysis is saying that covid effected income in the retail industry by -4136392747 less than the sum of all other industries. This makes sense, as there are so many other industries. 
+
+```{r}
+question2Ameans <- question2 %>% group_by(indname, date) %>% summarise(MeanIncome = mean(INCTOT))
+DIDmeans2 <- question2Ameans %>% 
+  mutate(after = date >= '2020-03-01',
+         treated = indname == 'Retail Trade')
+Means2 <- DIDmeans2 %>% 
+  group_by(after, treated) %>%
+  summarize(MeanIncome =mean(MeanIncome))
+
+(45931.42 - 42172.80) - (66415.76 - 61161.59)
+```
+We decided to do that traditional difference and difference (just four groups) with the mean income as well, where we found the mean income for retail before and after covid and the mean income for all other industries before and after Covid, just to see the difference. Therefore this analysis is saying that Covid effected income in the retail industry by -1495.557 less than the mean of all other industries.
+
+This makes sense, as retail isn't an essential part of life. When things were first starting to open up again, people wanted to go to work in things like Agriculture, or they wanted to buy groceries. The first thing on peoples mind wasn't to shop, it was to work so they could earn money. Once this money became a bit more steady, than they may be more willing to go out and shop in retail, and since the data goes to 2021, this shows that with how it is less, but not astronomically. 
+
+Another way of doing difference in difference is using fixed effects. This is where we will look at after and treated as fixed effects, which allows you to compare from within group and within time. Since we have multiple groups and multiple times in our dates, this seems like a more useful difference in difference to show how much Covid effected retail compared to other industries. We then can created an interaction term, CurrentlyTreated, to show us what is going on after treatment. 
+
+``` {r}
+DID <- DIDmeans %>% mutate(CurrentlyTreated = after == TRUE & treated == TRUE)  
+feols(log(SumIncome) ~ CurrentlyTreated | indname + date, data = DID)  %>% 
+  export_summs(statistics = c(N = 'nobs'))
+```
+
+To make it easier to understand, we put income in logs, as the number was going to be extremely big. This means that We then did this as a log, as it would be easier to understand and found that retail (our treated group) has 3 percentage points lower sum total income after Covid then other industries, controlling for both industry and time. 
+
+``` {r}
+DIDmeansB <- question2Ameans %>% 
+  mutate(after = date >= '2020-03-01',
+         treated = indname == 'Retail Trade')
+MeansB <- DIDmeansB %>% 
+  group_by(after, treated) %>%
+  summarize(MeanIncome, indname, date)
+DIDb <- MeansB %>% mutate(CurrentlyTreated = after == TRUE & treated == TRUE)  
+feols(MeanIncome ~ CurrentlyTreated | indname + date, data = DIDb)  %>% 
+  export_summs(statistics = c(N = 'nobs'))
+```
+
+We then did the same thing for average, and found that retail (our treated group) has a -1495.56   mean total income after Covid then other industries, controlling for both industry and time, which is the same as when we didn't use fixed effects. 
+
+This is good to be aware of, as the numbers are the same which means that we don't need to control for fixed effects for difference in difference, as it will be the same. The backdoor we controlled for are not actually backdoor, but it is good to show this by doing both. 
+``` {r fig.width = 10, fig.height = 7}
+ggplot(data = subset(DIDmeansB, date >= as.Date('2020-03-01')), 
+aes(x=date, y=MeanIncome, group = indname, color = indname))+
+  geom_line()+ 
+  ggtitle("Mean Income Over Time")
+```
+
+This graph just confirms our findings, which is that nothing drastic happened to retail during Covid. The mean income did go down, but not significanly enough where it dipped bwlow all other industires. 
+
+Overall, industry faired okay compared to other industries. It made a little less in income, both in totality and in mean, but it didn't make a significant amount less. None of the numbers were at any p value of significance in any of the tests we ran, which makes sense with the numbers we found. Covid effected all industries in various ways, and retail didn't do significantly worse than all others. People stopped shopping for a while, and when they did come back, they may have been more hesitant with their money. However, that didn't stop everyone and the industry did not sink. We can also tell from the graph that most industires did have a decrease in income after March 2020, so retail wasn't alone in that sense. Both the graph and the regressions show that people did stop shopping, but not enough where it made the industry as a whole failing. So although its income is a little less than other industries, one could make the claim it faired okay relative to other industries, especially since most other industries also went down in mean income. 
+
+###Question Three
+``` {r}
+problem3 <- select(CleanData, date, INCTOT, AGE, SEX, RACE)
+problem3 <-na.omit(problem3)
+problem3 <- rename(problem3, INCOME = INCTOT)
+# Creating a dummy variable for before and after March 1st, 2020
+problem3 <- problem3 %>% mutate(after = date >= ymd('2020-03-01'))
+# Creating a before and after data set for summary statistics
+problem3before <- filter(problem3, after == "FALSE")
+problem3after <- filter(problem3, after == "TRUE")
+```
+
+Age
+``` {r}
+problem3beforeAGE <- problem3before %>%
+  group_by(AGE) %>%
+  summarize(AVG_INCOME = mean(INCOME))
+
+ggplot(problem3beforeAGE, aes(x = AGE, y = AVG_INCOME)) + geom_line(aes(color = AVG_INCOME)) + theme_classic()
+
+problem3afterAGE <- problem3after %>%
+  group_by(AGE) %>%
+  summarize(AVG_INCOME = mean(INCOME))
+
+ggplot(problem3afterAGE, aes(x = AGE, y = AVG_INCOME)) + geom_line(aes(color = AVG_INCOME)) + theme_classic() 
+``` 
+When looking at both the summary statistics and graphs for before and after covid on how much income the person is making, it seems as if Covid really didn’t have that much effect. The average income stayed around the same for each age, showing that covid didn’t really have much of an effect on who was spending money age wise on mean income. 
+
+``` {r}
+AGEreg <- lm(INCOME ~ after*AGE, data = problem3)
+export_summs(AGEreg)
+``` 
+
+This is also shown with the regression, as it has a small R2 which means ages doesn’t contribute to a lot of the variation in income before and after covid. However, of the part that does, this is saying that after Covid, there is a 330.25 increase in income from before to after, controlling for age. It is important to keep in mind inflation as well as just general raises, so this really isn’t that significant. The 113.85 is saying that after covid, a one unit increase in age will lead to a 113.85 increase more in income.  
+
+```{r}
+330.25 + 113.85
+```
+
+Therefore, after covid, a one unit increase in age is equal to a 330.25 + 113.85 increase income. 
+
+
+An assumption that was made with this analysis is that we have enough data to make the interaction term since they are poorly powered.  Usually, there needs to be 16 X N to see the difference in effects is nonzero. We are assuming that since the graphs and the interaction term regression line up, that it was okay to use, but this is an assumption. 
+
+Sex
+``` {r}
+# Summary Statistics for SEX
+sumtable(problem3before %>% mutate(INCOME = as.numeric(INCOME), SEX = as.factor(SEX)), 'INCOME', group = 'SEX', group.long = TRUE)
+sumtable(problem3after %>% mutate(INCOME = as.numeric(INCOME), SEX = as.factor(SEX)), 'INCOME', group = 'SEX', group.long = TRUE)
+```
+
+We did a linear regression for the variable ‘Gender’ This which will be useful to help us answer the question of how the retail sector was impacted by those who were employed, and how they had the ability to spend their money. Here, we regressed Income on Male with ‘after’ as an interaction term, and stored it as SEXreg. We made sure to include the ‘after’ condition to ensure only data was used from after March 1, 2020, which was when the pandemic really started to take a larger hold on peoples lives and changed how we lived. This was done in an earlier step by creating a dummy variable for all dates after, naming it ‘problem3’. 
+
+``` {r}
+problem3 <- problem3 %>% mutate(MALE = SEX == 1)
+SEXreg <- lm(INCOME ~ after*MALE, data = problem3)
+export_summs(SEXreg)
+```
+After running this regression we got a regression output table that will help us understand how gender impacted income for all data after March 1, 2020. We can see from the output table that the effect on income after March 1st who are male saw an increase in income of $1,475.88 compared to their female counterparts. 
+
+We see that this particular group saw an increase in income compared to females in the same date range. The fact that income increased despite the pandemic could be due to many factors, one mainly being the large amount of government support and aid that was handed out to qualified individuals through stimulus bills and checks. This aided individuals who may have been struggling from pandemic impacts, but also assisted sectors such as the retail sector. It did this through allowing individuals to have more money to spend within other businesses, helping them stay in business, and stimulating the economy during a time when many people were inclined to save due to uncertainty. 
+
+Race
+``` {r}
+problem3RACE <- problem3 %>% filter(RACE %in% c("100", "200", "300", "651", "652"))
+problem3RACE <- problem3RACE %>% mutate(racialCategories = case_when(
+  RACE == 100 ~ "White",
+  RACE == 200 ~ "Black", 
+  RACE == 300 ~ "American_Indian_Aleut_Eskimo",
+  RACE == 651 ~ "Asian",
+  RACE == 652 ~ "Pacific_Islander"))
+
+problem3RACE <- problem3RACE %>% mutate(racialCategories = factor(racialCategories, levels = c("White", "Black", "American_Indian_Aleut_Eskimo", "Asian", "Pacific_Islander")))
+
+RACEreg <- lm(INCOME ~ racialCategories*after, data = problem3RACE)
+export_summs(RACEreg)
+``` 
+With the baseline racial category as "White", we ran a regression to see how the differences in income for different racial categories and to see if those differences changed before and after the beginning of the COVID-19 Pandemic. With baseline being "White", we can see that the expected income for a white individual before the pandemic was 60,790.82. From that baseline, we can see the other racial categories being lesser than that shown by their negative coefficient except for Asian individuals who had a higher expected income by 12,429.22. After the COVID-19 pandemic, it reduces the expected income disparitybetween white and black expected income by 82.75. The pandemic seemingly increased the income disparity between American Indian Aleut Eskimo and white individuals by 3,384.29 and increased the income gap between Asian and white individuals by 836.60. Finally, the pandemic decreased the difference between expected income for Pacific Islanders and white individuals by 939.44. Overall, our regression shows that Asian American and white individuals have the highest expected income both before and after the start of the pandemic.
+
+Due to the limitations of our data, our group wanted to focus on the discrepancies between expected income for different racial groups and to see if the pandemic exacerbated those differences. To do so, we wanted to see a broader overview and chose racial groups that consisted of one racial identity instead of choosing mixed racial categories. We chose the five racial categories of white, black, American Indian, Asian, and Pacific Islander to see how the income disparities changed based on race before and after the pandemic.
+
+Overall, it seems as though Covid-19 did effect the retail industry. It hurt its mean income, the health of the industry did go down, and people did make less money. However, it does not seem like retail was hurt anymore than one would except any indsutry that had to shut down to be hurt. 
+
